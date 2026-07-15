@@ -1,0 +1,211 @@
+🚀 Terraform Guardrails Using Validation & Postconditions
+
+Terraform provides native mechanisms to implement Policy as Code directly within your infrastructure definitions.
+
+1️⃣ Enforce Encrypted EBS Volumes (Pre-Deployment Validation)
+variables.tf
+variable "ebs_encryption" {
+  description = "Enable EBS encryption"
+  type        = bool
+  default     = true
+
+  validation {
+    condition     = var.ebs_encryption == true
+    error_message = "Security policy violation: All EBS volumes must be encrypted."
+  }
+}
+main.tf
+resource "aws_instance" "app" {
+  ami           = "ami-xxxxxxxx"
+  instance_type = "t3.medium"
+
+  root_block_device {
+    volume_size = 30
+    encrypted   = var.ebs_encryption
+  }
+
+  tags = {
+    Name = "app-server"
+  }
+}
+Test
+terraform plan -var="ebs_encryption=false"
+Output
+Error: Invalid value for variable
+
+Security policy violation:
+All EBS volumes must be encrypted.
+2️⃣ Runtime Validation Using Postconditions
+
+Even if the value comes from another module or data source, Terraform can validate the final resource configuration.
+
+resource "aws_instance" "app" {
+  ami           = "ami-xxxxxxxx"
+  instance_type = "t3.medium"
+
+  root_block_device {
+    encrypted = true
+    volume_size = 30
+  }
+
+  lifecycle {
+    postcondition {
+      condition     = self.root_block_device[0].encrypted == true
+
+      error_message = "Compliance failure: Root EBS volume is not encrypted."
+    }
+  }
+}
+3️⃣ Restrict Approved EC2 Instance Types
+
+Many organizations allow only certain instance families to control costs.
+
+variables.tf
+variable "instance_type" {
+  type    = string
+  default = "t3.medium"
+
+  validation {
+    condition = contains(
+      [
+        "t3.micro",
+        "t3.small",
+        "t3.medium"
+      ],
+      var.instance_type
+    )
+
+    error_message =
+    "Only t3.micro, t3.small and t3.medium are permitted."
+  }
+}
+main.tf
+resource "aws_instance" "web" {
+  ami           = "ami-xxxxxxxx"
+  instance_type = var.instance_type
+}
+Test
+terraform plan -var="instance_type=m7i.2xlarge"
+Output
+Error:
+
+Only t3.micro, t3.small and t3.medium are permitted.
+4️⃣ Allow Deployment Only in Approved AWS Regions
+
+Prevent accidental deployments into expensive or unauthorized regions.
+
+variables.tf
+variable "aws_region" {
+  type    = string
+  default = "ap-south-1"
+
+  validation {
+    condition = contains(
+      [
+        "ap-south-1",
+        "us-east-1"
+      ],
+      var.aws_region
+    )
+
+    error_message =
+    "Deployments are permitted only in ap-south-1 and us-east-1."
+  }
+}
+provider.tf
+provider "aws" {
+  region = var.aws_region
+}
+Test
+terraform plan -var="aws_region=eu-west-1"
+5️⃣ Enforce Mandatory Tags
+
+Most enterprises require tags for cost allocation and governance.
+
+variable "tags" {
+  type = map(string)
+
+  validation {
+    condition =
+      contains(keys(var.tags), "Environment") &&
+      contains(keys(var.tags), "Owner") &&
+      contains(keys(var.tags), "CostCenter")
+
+    error_message =
+    "Mandatory tags missing. Required: Environment, Owner, CostCenter."
+  }
+}
+Usage
+resource "aws_instance" "app" {
+  ami           = "ami-xxxxxxxx"
+  instance_type = "t3.medium"
+
+  tags = var.tags
+}
+6️⃣ Enforce Minimum EBS Volume Size
+
+Prevent under-sized disks that may cause production incidents.
+
+variable "root_volume_size" {
+  type    = number
+  default = 50
+
+  validation {
+    condition     = var.root_volume_size >= 30
+    error_message = "Root volume size must be at least 30 GB."
+  }
+}
+resource "aws_instance" "app" {
+  ami           = "ami-xxxxxxxx"
+  instance_type = "t3.medium"
+
+  root_block_device {
+    volume_size = var.root_volume_size
+    encrypted   = true
+  }
+}
+Test
+terraform plan -var="root_volume_size=10"
+7️⃣ Runtime Validation: Ensure S3 Versioning is Enabled
+resource "aws_s3_bucket" "logs" {
+  bucket = "company-prod-logs-12345"
+}
+
+resource "aws_s3_bucket_versioning" "logs" {
+  bucket = aws_s3_bucket.logs.id
+
+  versioning_configuration {
+    status = "Enabled"
+  }
+
+  lifecycle {
+    postcondition {
+      condition =
+      self.versioning_configuration[0].status == "Enabled"
+
+      error_message =
+      "S3 bucket versioning must remain enabled."
+    }
+  }
+}
+8️⃣ Runtime Validation: Prevent Public S3 Buckets
+resource "aws_s3_bucket_public_access_block" "logs" {
+  bucket = aws_s3_bucket.logs.id
+
+  block_public_acls       = true
+  block_public_policy     = true
+  ignore_public_acls      = true
+  restrict_public_buckets = true
+
+  lifecycle {
+    postcondition {
+      condition =
+      self.block_public_policy &&
+      self.block_public_acls &&
+      self.restrict_public_buckets
+
+      error_message =
+      "Public access must be completely disabled."
+    }
+  }
+}
