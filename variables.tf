@@ -20,8 +20,9 @@ variable "ami_id" {
 
 variable "common_tags" {
   type = map(string)
+
   default = {
-    name= demo-server
-    environment = dev
+    name        = "demo-server"
+    environment = "dev"
   }
 }
