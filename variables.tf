@@ -17,3 +17,11 @@ variable "instance_type" {
 variable "ami_id" {
   default = "ami-00e801948462f718a"
 }
+
+variable "common_tags" {
+  type = map(string)
+  default = {
+    name= demo-server
+    environment = dev
+  }
+}
