@@ -1,0 +1,233 @@
+Terraform Data Source in AWS Explained
+
+A Terraform Data Source is used to fetch information about existing resources that are not managed by the current Terraform configuration.
+
+Instead of creating a resource, it reads information from AWS and makes it available for use in your Terraform code.
+
+Why Use Data Sources?
+
+Common scenarios:
+
+Use an existing VPC created by another team.
+Fetch the latest Amazon Linux AMI dynamically.
+Get Route53 Hosted Zone details.
+Retrieve existing IAM roles, subnets, security groups, etc.
+Avoid hardcoding IDs.
+Syntax
+data "<PROVIDER>_<RESOURCE_TYPE>" "<LOCAL_NAME>" {
+  # filters
+}
+
+Example:
+
+data "aws_vpc" "main" {
+  id = "vpc-123456"
+}
+
+Access values:
+
+data.aws_vpc.main.cidr_block
+Example 1: Fetch Existing VPC
+data "aws_vpc" "prod" {
+  tags = {
+    Name = "prod-vpc"
+  }
+}
+
+output "vpc_id" {
+  value = data.aws_vpc.prod.id
+}
+
+output "cidr" {
+  value = data.aws_vpc.prod.cidr_block
+}
+Example 2: Get Existing Subnets
+data "aws_subnets" "private" {
+  filter {
+    name   = "tag:Type"
+    values = ["private"]
+  }
+}
+
+output "subnets" {
+  value = data.aws_subnets.private.ids
+}
+Example 3: Fetch Latest Amazon Linux AMI (Very Common Interview Question)
+data "aws_ami" "amazon_linux" {
+  most_recent = true
+
+  owners = ["amazon"]
+
+  filter {
+    name   = "name"
+    values = ["al2023-ami-*"]
+  }
+
+  filter {
+    name   = "architecture"
+    values = ["x86_64"]
+  }
+}
+
+Use it:
+
+resource "aws_instance" "server" {
+  ami           = data.aws_ami.amazon_linux.id
+  instance_type = "t3.micro"
+}
+Benefit
+
+No need to update AMI IDs manually whenever AWS releases new versions.
+
+Example 4: Existing Security Group
+data "aws_security_group" "web" {
+  filter {
+    name   = "group-name"
+    values = ["web-sg"]
+  }
+}
+
+output "sg_id" {
+  value = data.aws_security_group.web.id
+}
+Example 5: Existing Route53 Zone
+data "aws_route53_zone" "main" {
+  name         = "example.com"
+  private_zone = false
+}
+
+resource "aws_route53_record" "app" {
+  zone_id = data.aws_route53_zone.main.zone_id
+  name    = "app.example.com"
+  type    = "A"
+  ttl     = 300
+  records = ["1.2.3.4"]
+}
+Example 6: Get Current AWS Account Information
+data "aws_caller_identity" "current" {}
+
+Outputs:
+
+output "account_id" {
+  value = data.aws_caller_identity.current.account_id
+}
+
+output "user_arn" {
+  value = data.aws_caller_identity.current.arn
+}
+
+Useful in reusable modules.
+
+Example 7: Get Current AWS Region
+data "aws_region" "current" {}
+
+output "region" {
+  value = data.aws_region.current.name
+}
+Example 8: Availability Zones
+data "aws_availability_zones" "available" {
+  state = "available"
+}
+
+output "azs" {
+  value = data.aws_availability_zones.available.names
+}
+
+Use for subnet creation:
+
+resource "aws_subnet" "public" {
+  count             = 2
+  vpc_id            = aws_vpc.main.id
+  cidr_block        = cidrsubnet(
+                         aws_vpc.main.cidr_block,
+                         8,
+                         count.index
+                       )
+  availability_zone = data.aws_availability_zones.available.names[count.index]
+}
+Example 9: Existing IAM Role
+data "aws_iam_role" "eks_role" {
+  name = "eks-cluster-role"
+}
+
+output "role_arn" {
+  value = data.aws_iam_role.eks_role.arn
+}
+Real-World DevOps Example
+
+Suppose your networking team already created a VPC.
+
+Instead of hardcoding:
+
+vpc_id = "vpc-0abc123xyz"
+
+Do this:
+
+data "aws_vpc" "shared" {
+  tags = {
+    Environment = "prod"
+  }
+}
+
+resource "aws_security_group" "app" {
+  name   = "app-sg"
+  vpc_id = data.aws_vpc.shared.id
+}
+
+This makes the code:
+
+✅ Reusable
+✅ Environment independent
+✅ Easier to maintain
+
+Resource vs Data Source
+Feature	Resource	Data Source
+Creates Infrastructure	✅ Yes	❌ No
+Reads Existing Infrastructure	❌ No	✅ Yes
+Managed by Terraform State	✅ Yes	Read-only
+Can Modify Resource	✅ Yes	❌ No
+Used for Existing AWS Resources	Limited	✅ Excellent
+Interview Questions
+1. What is a Terraform Data Source?
+
+A read-only mechanism used to fetch information about existing infrastructure.
+
+2. Difference between resource and data block?
+
+resource creates/manages infrastructure, while data only reads existing resources.
+
+3. Why use aws_ami data source?
+
+To dynamically retrieve the latest AMI and avoid hardcoded AMI IDs.
+
+4. Does Terraform store data sources in state?
+
+Yes, Terraform stores fetched values in the state file, but it does not manage the lifecycle of those resources.
+
+5. Can data sources depend on resources?
+
+Yes.
+
+data "aws_subnets" "private" {
+  depends_on = [aws_vpc.main]
+}
+Architecture Flow
+Terraform Configuration
+           ↓
+      Data Source
+           ↓
+      Query AWS API
+           ↓
+Retrieve Existing Resource Info
+           ↓
+Use Values in Resources/Modules
+Example Flow
+aws_ami Data Source
+          ↓
+Returns AMI ID
+          ↓
+aws_instance Resource
+          ↓
+Launch EC2
+
+Data sources are heavily used in enterprise Terraform projects, especially when multiple teams manage different AWS components (Networking, Security, Platform, DevOps, etc.).
